@@ -3,54 +3,77 @@ import pandas as pd
 import csv
 import json
 import unicodedata
+import zipfile
+import io
 from datetime import datetime
 import os
 
-# Configuration de la page
+# --- CONFIGURATION PAGE ---
 st.set_page_config(
     page_title="Gestion Samples Rhum",
     page_icon="🥃",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 FICHIER_ETAT = "rhum_etat.json"
 
-# Fonction pour retirer les accents
+# --- THEME CSS RHUM ---
+st.markdown("""
+<style>
+    /* Palette Rhum : Bois, Marron, Or */
+    .stApp {
+        background-color: #F5F5DC;
+    }
+    
+    /* Sidebar Bois */
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #654321 0%, #8B4513 100%);
+        color: #FFD700;
+    }
+    
+    /* Titres */
+    h1, h2, h3 {
+        color: #8B4513;
+        font-family: 'Georgia', serif;
+    }
+    
+    /* Boutons Rhum */
+    .stButton > button {
+        background: linear-gradient(145deg, #A0522D, #8B4513);
+        color: white;
+        border: 2px solid #DAA520;
+        border-radius: 10px;
+        font-weight: bold;
+    }
+    .stButton > button:hover {
+        background: #CD853F;
+        border-color: #FFD700;
+        color: white;
+    }
+
+    /* Métriques Dorées */
+    [data-testid="stMetricValue"] {
+        color: #B8860B;
+    }
+    
+    /* Success Box */
+    .stSuccess {
+        background-color: #DEB887;
+        color: #4A2C0B;
+        border: 1px solid #8B4513;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# --- FONCTIONS UTILITAIRES ---
 def retirer_accents(texte):
-    if not isinstance(texte, str):
-        return texte
+    if not isinstance(texte, str): return texte
     try:
         nfkd_form = unicodedata.normalize('NFKD', texte)
         return "".join([c for c in nfkd_form if not unicodedata.combining(c)])
-    except:
-        return texte
+    except: return texte
 
-# Initialisation du state
-if 'adherents_noms' not in st.session_state:
-    st.session_state.adherents_noms = []
-if 'mois_data' not in st.session_state:
-    st.session_state.mois_data = {}
-    for mois in ["Février", "Mars", "Avril", "Mai", "Juin", "Juillet", 
-                 "Août", "Septembre", "Octobre", "Novembre", "Décembre"]:
-        st.session_state.mois_data[mois] = {
-            "nom_bouteille": "",
-            "prix_achat": 0.0,
-            "prix_sample": 0.0,
-            "adherents": {}
-        }
-
-# Charger l'état sauvegardé
-def charger_etat():
-    if os.path.exists(FICHIER_ETAT):
-        try:
-            with open(FICHIER_ETAT, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                st.session_state.adherents_noms = data.get("adherents_noms", [])
-                st.session_state.mois_data = data.get("mois_data", st.session_state.mois_data)
-        except:
-            pass
-
-# Sauvegarder l'état
 def sauvegarder_etat():
     try:
         with open(FICHIER_ETAT, "w", encoding="utf-8") as f:
@@ -58,26 +81,44 @@ def sauvegarder_etat():
                 "adherents_noms": st.session_state.adherents_noms,
                 "mois_data": st.session_state.mois_data
             }, f, ensure_ascii=False, indent=4)
-    except:
-        pass
+    except Exception as e:
+        st.error(f"Erreur sauvegarde : {e}")
 
-# Charger au démarrage
+def charger_etat():
+    if 'adherents_noms' not in st.session_state:
+        st.session_state.adherents_noms = []
+    
+    if 'mois_data' not in st.session_state:
+        st.session_state.mois_data = {}
+        for mois in ["Février", "Mars", "Avril", "Mai", "Juin", "Juillet", 
+                     "Août", "Septembre", "Octobre", "Novembre", "Décembre"]:
+            st.session_state.mois_data[mois] = {
+                "nom_bouteille": "",
+                "prix_achat": 0.0,
+                "prix_sample": 0.0,
+                "adherents": {}
+            }
+
+    if os.path.exists(FICHIER_ETAT):
+        try:
+            with open(FICHIER_ETAT, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                st.session_state.adherents_noms = data.get("adherents_noms", [])
+                st.session_state.mois_data = data.get("mois_data", st.session_state.mois_data)
+        except: pass
+
+# --- INITIALISATION ---
 charger_etat()
 
-# En-tête
-st.title("🥃 Gestion Samples Rhum - Association")
-st.markdown("---")
-
-# Zone d'import des adhérents
-col1, col2 = st.columns([3, 1])
-with col1:
-    uploaded_file = st.file_uploader(
-        "📥 Importer la liste des adhérents (CSV avec colonnes Nom;Prénom)",
-        type=['csv'],
-        help="Format : Nom;Prénom (première ligne = en-tête à ignorer)"
-    )
+# --- HEADER & SIDEBAR ---
+with st.sidebar:
+    st.image("https://img.icons8.com/color/96/rum.png", width=80)
+    st.title("Gestion Rhum")
+    st.markdown("---")
     
-    if uploaded_file is not None:
+    # IMPORT
+    uploaded_file = st.file_uploader("📥 Importer CSV Adhérents", type=['csv'])
+    if uploaded_file:
         try:
             noms_importes = []
             content = uploaded_file.read().decode('utf-8').splitlines()
@@ -91,17 +132,82 @@ with col1:
                         noms_importes.append(nom_fmt)
             
             st.session_state.adherents_noms = sorted(list(set(noms_importes)))
-            st.success(f"✅ {len(st.session_state.adherents_noms)} adhérents importés avec succès !")
+            st.success(f"✅ {len(st.session_state.adherents_noms)} chargés")
             sauvegarder_etat()
         except Exception as e:
-            st.error(f"❌ Erreur lors de l'import : {e}")
+            st.error(f"Erreur: {e}")
 
-with col2:
-    st.metric("👥 Adhérents chargés", len(st.session_state.adherents_noms))
+    st.markdown("---")
+    
+    # EXPORT TOTAL (ZIP)
+    if st.button("📦 Exporter Année Complète (ZIP)"):
+        zip_buffer = io.BytesIO()
+        has_data = False
+        
+        with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+            for mois, data in st.session_state.mois_data.items():
+                lignes_export = []
+                # Calculs
+                total_samples = 0
+                total_payes = 0
+                
+                for nom, d in data["adherents"].items():
+                    if d["qte"] > 0:
+                        total_samples += d["qte"]
+                        if d["paye"]: total_payes += d["qte"]
+                        lignes_export.append([retirer_accents(nom), d["qte"], "OUI" if d["paye"] else "NON"])
+                
+                if lignes_export:
+                    has_data = True
+                    csv_content = []
+                    csv_content.append(f"Mois;{retirer_accents(mois)}")
+                    csv_content.append(f"Bouteille;{retirer_accents(data['nom_bouteille'])}")
+                    
+                    ca = total_samples * data["prix_sample"]
+                    marge = ca - data["prix_achat"]
+                    taux = (marge / ca * 100) if ca > 0 else 0
+                    
+                    csv_content.append(f"Prix Achat;{data['prix_achat']};Prix Sample;{data['prix_sample']}")
+                    csv_content.append(f"Commandes;{total_samples};Payes;{total_payes}")
+                    csv_content.append(f"Marge;{marge:.2f};Rentabilite;{taux:.1f}%")
+                    csv_content.append("")
+                    csv_content.append("Nom;Samples;Paye")
+                    
+                    for l in lignes_export:
+                        csv_content.append(f"{l[0]};{l[1]};{l[2]}")
+                    
+                    zip_file.writestr(f"{retirer_accents(mois)}.csv", "\n".join(csv_content))
+        
+        if has_data:
+            st.download_button(
+                label="⬇️ Télécharger ZIP",
+                data=zip_buffer.getvalue(),
+                file_name=f"Rhum_Annee_{datetime.now().strftime('%Y')}.zip",
+                mime="application/zip"
+            )
+        else:
+            st.warning("Aucune donnée à exporter.")
 
-st.markdown("---")
+    st.markdown("---")
+    
+    # REMISE A ZERO (DANGER ZONE)
+    st.subheader("⚠️ Zone Danger")
+    if st.button("🧨 Nouvelle Année (Reset Total)"):
+        st.session_state.mois_data = {} # Reset data mois
+        for mois in ["Février", "Mars", "Avril", "Mai", "Juin", "Juillet", 
+                     "Août", "Septembre", "Octobre", "Novembre", "Décembre"]:
+            st.session_state.mois_data[mois] = {
+                "nom_bouteille": "", "prix_achat": 0.0, "prix_sample": 0.0, "adherents": {}
+            }
+        # On garde les adhérents (souvent les mêmes d'une année à l'autre)
+        # Si tu veux tout virer : st.session_state.adherents_noms = []
+        
+        sauvegarder_etat()
+        st.rerun()
 
-# Onglets par mois
+# --- CORPS PRINCIPAL ---
+st.title("🥃 Gestion Samples - Association Rhum")
+
 mois_list = ["Février", "Mars", "Avril", "Mai", "Juin", "Juillet", 
              "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
 
@@ -111,141 +217,98 @@ for idx, mois in enumerate(mois_list):
     with tabs[idx]:
         st.header(f"📅 {mois}")
         
-        # Infos bouteille
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            nom_b = st.text_input(
-                "Nom de la bouteille",
-                value=st.session_state.mois_data[mois]["nom_bouteille"],
-                key=f"nom_{mois}"
-            )
-            st.session_state.mois_data[mois]["nom_bouteille"] = nom_b
-        
-        with col2:
-            prix_achat = st.number_input(
-                "Prix achat (€)",
-                value=st.session_state.mois_data[mois]["prix_achat"],
-                min_value=0.0,
-                step=0.5,
-                key=f"prix_achat_{mois}"
-            )
-            st.session_state.mois_data[mois]["prix_achat"] = prix_achat
-        
-        with col3:
-            prix_sample = st.number_input(
-                "Prix sample (€)",
-                value=st.session_state.mois_data[mois]["prix_sample"],
-                min_value=0.0,
-                step=0.5,
-                key=f"prix_sample_{mois}"
-            )
-            st.session_state.mois_data[mois]["prix_sample"] = prix_sample
-        
+        # INFOS BOUTEILLE
+        with st.container():
+            col1, col2, col3 = st.columns([2, 1, 1])
+            with col1:
+                nom_b = st.text_input("Nom Bouteille", 
+                                    value=st.session_state.mois_data[mois]["nom_bouteille"],
+                                    key=f"nom_{mois}")
+                st.session_state.mois_data[mois]["nom_bouteille"] = nom_b
+            
+            with col2:
+                pa = st.number_input("Prix Achat (€)", 
+                                   value=st.session_state.mois_data[mois]["prix_achat"],
+                                   min_value=0.0, step=0.5, key=f"pa_{mois}")
+                st.session_state.mois_data[mois]["prix_achat"] = pa
+            
+            with col3:
+                ps = st.number_input("Prix Sample (€)", 
+                                   value=st.session_state.mois_data[mois]["prix_sample"],
+                                   min_value=0.0, step=0.5, key=f"ps_{mois}")
+                st.session_state.mois_data[mois]["prix_sample"] = ps
+
         st.markdown("---")
-        
-        # Liste des adhérents
+
+        # TABLEAU COMMANDES
         if not st.session_state.adherents_noms:
-            st.warning("⚠️ Aucun adhérent chargé. Importez d'abord le fichier CSV.")
+            st.info("👈 Veuillez importer les adhérents dans le menu de gauche.")
         else:
-            st.subheader("🍹 Commandes de samples (3cl)")
-            
-            # Affichage sous forme de tableau éditable
-            data_rows = []
+            # Préparation data
+            data_list = []
             for nom in st.session_state.adherents_noms:
-                current_data = st.session_state.mois_data[mois]["adherents"].get(nom, {"qte": 0, "paye": False})
-                data_rows.append({
-                    "Nom": nom,
-                    "Samples": current_data["qte"],
-                    "Payé": current_data["paye"]
-                })
+                d = st.session_state.mois_data[mois]["adherents"].get(nom, {"qte": 0, "paye": False})
+                data_list.append({"Nom": nom, "Samples": d["qte"], "Payé": d["paye"]})
             
-            df = pd.DataFrame(data_rows)
+            df = pd.DataFrame(data_list)
             
-            # Utiliser st.data_editor pour l'édition
             edited_df = st.data_editor(
                 df,
                 column_config={
-                    "Nom": st.column_config.TextColumn("Nom", disabled=True, width="large"),
-                    "Samples": st.column_config.NumberColumn(
-                        "Samples (3cl)",
-                        min_value=0,
-                        max_value=5,
-                        step=1,
-                        width="small"
-                    ),
-                    "Payé": st.column_config.CheckboxColumn("Payé", width="small")
+                    "Nom": st.column_config.TextColumn("Adhérent", disabled=True),
+                    "Samples": st.column_config.NumberColumn("Quantité (3cl)", min_value=0, max_value=10, step=1),
+                    "Payé": st.column_config.CheckboxColumn("Payé ?")
                 },
                 hide_index=True,
                 use_container_width=True,
-                key=f"editor_{mois}"
+                key=f"editor_{mois}",
+                height=400
             )
             
-            # Mettre à jour session_state
-            for _, row in edited_df.iterrows():
+            # Sauvegarde changements
+            has_changes = False
+            for index, row in edited_df.iterrows():
                 nom = row["Nom"]
-                st.session_state.mois_data[mois]["adherents"][nom] = {
-                    "qte": int(row["Samples"]),
-                    "paye": bool(row["Payé"])
-                }
+                old = st.session_state.mois_data[mois]["adherents"].get(nom, {"qte": 0, "paye": False})
+                if old["qte"] != row["Samples"] or old["paye"] != row["Payé"]:
+                    st.session_state.mois_data[mois]["adherents"][nom] = {
+                        "qte": int(row["Samples"]),
+                        "paye": bool(row["Payé"])
+                    }
+                    has_changes = True
             
-            # Calculs
-            total_samples = sum([d["qte"] for d in st.session_state.mois_data[mois]["adherents"].values()])
-            total_payes = sum([d["qte"] for d in st.session_state.mois_data[mois]["adherents"].values() if d["paye"]])
-            ca = total_samples * prix_sample
-            marge = ca - prix_achat
+            if has_changes: sauvegarder_etat()
+
+            # TOTAUX
+            total_samples = sum(d["qte"] for d in st.session_state.mois_data[mois]["adherents"].values())
+            total_payes = sum(d["qte"] for d in st.session_state.mois_data[mois]["adherents"].values() if d["paye"])
+            
+            ca = total_samples * ps
+            marge = ca - pa
             taux = (marge / ca * 100) if ca > 0 else 0
             
-            # Affichage des totaux
-            st.markdown("---")
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("📦 Commandés", f"{total_samples} / 20")
-            col2.metric("💰 Payés", f"{total_payes} / {total_samples}", delta=None)
-            col3.metric("💵 Marge", f"{marge:.2f} €")
-            col4.metric("📈 Rentabilité", f"{taux:.1f} %")
+            st.markdown("### 📊 Bilan du Mois")
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Commandés", f"{total_samples} / 20")
+            m2.metric("Payés", f"{total_payes} / {total_samples}")
+            m3.metric("Marge", f"{marge:.2f} €")
+            m4.metric("Rentabilité", f"{taux:.1f} %")
             
-            # Bouton export
-            st.markdown("---")
-            if st.button(f"📥 Exporter {mois} en CSV", key=f"export_{mois}"):
-                # Préparer les données
-                lignes_export = []
-                for nom, data in st.session_state.mois_data[mois]["adherents"].items():
-                    if data["qte"] > 0:
-                        lignes_export.append({
-                            "Nom": retirer_accents(nom),
-                            "Samples": data["qte"],
-                            "Paye": "OUI" if data["paye"] else "NON"
-                        })
+            # EXPORT MOIS
+            if st.button(f"📥 Exporter {mois} (CSV)", key=f"btn_{mois}"):
+                lignes = []
+                for nom, d in st.session_state.mois_data[mois]["adherents"].items():
+                    if d["qte"] > 0:
+                        lignes.append(f"{retirer_accents(nom)};{d['qte']};{'OUI' if d['paye'] else 'NON'}")
                 
-                if lignes_export:
-                    # Créer CSV
-                    mois_clean = retirer_accents(mois)
-                    nom_b_clean = retirer_accents(nom_b)
-                    
-                    csv_content = []
-                    csv_content.append(f"Mois;{mois_clean}")
-                    csv_content.append(f"Bouteille;{nom_b_clean}")
-                    csv_content.append(f"Prix Achat;{prix_achat};Prix Sample;{prix_sample}")
-                    csv_content.append(f"Samples Commandes;{total_samples};Samples Payes;{total_payes}")
-                    csv_content.append(f"Marge;{marge:.2f};Rentabilite;{taux:.1f}%")
-                    csv_content.append("")
-                    csv_content.append("Nom;Samples (3cl);Paye")
-                    
-                    for ligne in lignes_export:
-                        csv_content.append(f"{ligne['Nom']};{ligne['Samples']};{ligne['Paye']}")
-                    
-                    csv_string = "\n".join(csv_content)
+                if lignes:
+                    csv_txt = f"Mois;{retirer_accents(mois)}\nBouteille;{retirer_accents(nom_b)}\n"
+                    csv_txt += f"Marge;{marge:.2f};Rentabilite;{taux:.1f}%\n\nNom;Samples;Paye\n"
+                    csv_txt += "\n".join(lignes)
                     
                     st.download_button(
-                        label=f"💾 Télécharger Rhum_{mois_clean}_{datetime.now().strftime('%Y%m%d')}.csv",
-                        data=csv_string.encode('utf-8'),
-                        file_name=f"Rhum_{mois_clean}_{datetime.now().strftime('%Y%m%d')}.csv",
+                        label="⬇️ Télécharger CSV",
+                        data=csv_txt,
+                        file_name=f"Rhum_{retirer_accents(mois)}.csv",
                         mime="text/csv"
                     )
-                else:
-                    st.warning("Aucune commande à exporter pour ce mois.")
-
-# Bouton de sauvegarde globale
-st.markdown("---")
-if st.button("💾 Sauvegarder toutes les données", type="primary"):
-    sauvegarder_etat()
-    st.success("✅ Données sauvegardées avec succès !")

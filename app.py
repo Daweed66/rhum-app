@@ -21,64 +21,29 @@ FICHIER_ETAT = "rhum_etat.json"
 # --- THEME CSS LISIBLE (Chocolat & Bois Clair) ---
 st.markdown("""
 <style>
-    /* Fond principal : Beige très clair */
-    .stApp {
-        background-color: #FAFAF5;
-    }
+    .stApp { background-color: #FAFAF5; }
+    section[data-testid="stSidebar"] { background-color: #F0E6D2; border-right: 1px solid #D7CCC8; }
+    h1, h2, h3 { color: #3E2723 !important; font-family: 'Helvetica', 'Arial', sans-serif; font-weight: 700; }
+    p, label, .stMarkdown { color: #2D241E !important; }
+    .stButton > button { background-color: #8D6E63; color: white !important; border: 1px solid #5D4037; border-radius: 6px; transition: all 0.2s; }
+    .stButton > button:hover { background-color: #6D4C41; border-color: #3E2723; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+    [data-testid="stMetricValue"] { color: #A1887F !important; font-weight: bold; }
+    [data-testid="stMetricLabel"] { color: #5D4037 !important; }
+    .stSuccess, .stInfo { background-color: #EFEBE9; border-left: 5px solid #8D6E63; color: #3E2723; }
+    [data-testid="stDataFrame"] { border: 1px solid #D7CCC8; border-radius: 5px; }
     
-    /* Sidebar : Beige un peu plus soutenu (Sable) */
-    section[data-testid="stSidebar"] {
-        background-color: #F0E6D2;
-        border-right: 1px solid #D7CCC8;
+    /* Style spécifique pour le bilan annuel */
+    .bilan-box {
+        background-color: #FFF8E1;
+        border: 2px solid #FFECB3;
+        border-radius: 10px;
+        padding: 15px;
+        margin-top: 20px;
+        margin-bottom: 20px;
+        text-align: center;
     }
-    
-    /* Titres : Marron Chocolat Foncé (Très lisible) */
-    h1, h2, h3 {
-        color: #3E2723 !important;
-        font-family: 'Helvetica', 'Arial', sans-serif;
-        font-weight: 700;
-    }
-    
-    /* Texte normal : Noir doux */
-    p, label, .stMarkdown {
-        color: #2D241E !important;
-    }
-    
-    /* Boutons : Marron Cuir */
-    .stButton > button {
-        background-color: #8D6E63;
-        color: white !important;
-        border: 1px solid #5D4037;
-        border-radius: 6px;
-        transition: all 0.2s;
-    }
-    .stButton > button:hover {
-        background-color: #6D4C41;
-        border-color: #3E2723;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-    }
-    
-    /* Métriques (Chiffres) : Couleur Cognac */
-    [data-testid="stMetricValue"] {
-        color: #A1887F !important;
-        font-weight: bold;
-    }
-    [data-testid="stMetricLabel"] {
-        color: #5D4037 !important;
-    }
-    
-    /* Boîtes de succès/info */
-    .stSuccess, .stInfo {
-        background-color: #EFEBE9;
-        border-left: 5px solid #8D6E63;
-        color: #3E2723;
-    }
-    
-    /* Tableau (Data Editor) */
-    [data-testid="stDataFrame"] {
-        border: 1px solid #D7CCC8;
-        border-radius: 5px;
-    }
+    .bilan-title { color: #F57F17; font-weight: bold; font-size: 1.1em; margin-bottom: 10px; }
+    .bilan-val { font-size: 1.5em; font-weight: bold; color: #E65100; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -128,9 +93,35 @@ charger_etat()
 
 # --- HEADER & SIDEBAR ---
 with st.sidebar:
-    # Logo Rhum (emoji géant pour l'exemple, remplaçable par ton image)
     st.markdown("<div style='text-align: center; font-size: 80px;'>🥃</div>", unsafe_allow_html=True)
     st.markdown("<h2 style='text-align: center;'>Gestion Rhum</h2>", unsafe_allow_html=True)
+    
+    # --- BILAN ANNUEL (Calcul dynamique) ---
+    total_annuel_samples = 0
+    total_annuel_marge = 0.0
+    total_annuel_ca = 0.0
+    
+    for m_data in st.session_state.mois_data.values():
+        nb_s = sum(d["qte"] for d in m_data["adherents"].values())
+        ca_mois = nb_s * m_data["prix_sample"]
+        # Marge calculée seulement si vente > 0 pour éviter d'impacter avec bouteilles non commencées
+        if nb_s > 0:
+            marge_mois = ca_mois - m_data["prix_achat"]
+            total_annuel_samples += nb_s
+            total_annuel_marge += marge_mois
+            total_annuel_ca += ca_mois
+            
+    st.markdown("""<div class="bilan-box">
+        <div class="bilan-title">💰 BILAN ANNUEL</div>
+    """, unsafe_allow_html=True)
+    
+    col_b1, col_b2 = st.columns(2)
+    col_b1.metric("Samples", f"{total_annuel_samples}")
+    col_b2.metric("Marge", f"{total_annuel_marge:.0f} €")
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+    # ---------------------------------------
+
     st.markdown("---")
     
     # IMPORT
@@ -164,7 +155,6 @@ with st.sidebar:
         with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
             for mois, data in st.session_state.mois_data.items():
                 lignes_export = []
-                # Calculs
                 total_samples = 0
                 total_payes = 0
                 
@@ -193,7 +183,6 @@ with st.sidebar:
                     for l in lignes_export:
                         csv_content.append(f"{l[0]};{l[1]};{l[2]}")
                     
-                    # Correction ici: utilisation de \n pour le saut de ligne
                     zip_file.writestr(f"{retirer_accents(mois)}.csv", "\n".join(csv_content))
         
         if has_data:
@@ -211,7 +200,7 @@ with st.sidebar:
     # REMISE A ZERO (DANGER ZONE)
     st.subheader("⚠️ Zone Danger")
     if st.button("🧨 Nouvelle Année (Reset Total)"):
-        st.session_state.mois_data = {} # Reset data mois
+        st.session_state.mois_data = {} 
         for mois in ["Février", "Mars", "Avril", "Mai", "Juin", "Juillet", 
                      "Août", "Septembre", "Octobre", "Novembre", "Décembre"]:
             st.session_state.mois_data[mois] = {

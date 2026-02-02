@@ -1,4 +1,3 @@
-python
 import streamlit as st
 import pandas as pd
 import csv
@@ -83,7 +82,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-
 # --- FONCTIONS UTILITAIRES ---
 def retirer_accents(texte):
     if not isinstance(texte, str): return texte
@@ -130,8 +128,9 @@ charger_etat()
 
 # --- HEADER & SIDEBAR ---
 with st.sidebar:
-    st.image("https://img.icons8.com/color/96/rum.png", width=80)
-    st.title("Gestion Rhum")
+    # Logo Rhum (emoji géant pour l'exemple, remplaçable par ton image)
+    st.markdown("<div style='text-align: center; font-size: 80px;'>🥃</div>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>Gestion Rhum</h2>", unsafe_allow_html=True)
     st.markdown("---")
     
     # IMPORT
@@ -194,6 +193,7 @@ with st.sidebar:
                     for l in lignes_export:
                         csv_content.append(f"{l[0]};{l[1]};{l[2]}")
                     
+                    # Correction ici: utilisation de \n pour le saut de ligne
                     zip_file.writestr(f"{retirer_accents(mois)}.csv", "\n".join(csv_content))
         
         if has_data:
@@ -217,8 +217,6 @@ with st.sidebar:
             st.session_state.mois_data[mois] = {
                 "nom_bouteille": "", "prix_achat": 0.0, "prix_sample": 0.0, "adherents": {}
             }
-        # On garde les adhérents (souvent les mêmes d'une année à l'autre)
-        # Si tu veux tout virer : st.session_state.adherents_noms = []
         
         sauvegarder_etat()
         st.rerun()

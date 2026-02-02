@@ -304,4 +304,504 @@ with st.sidebar:
                     
                     for nom, p_data in dg_data["participants"].items():
                         if p_data.get("inscrit", False):
-                            deg_content.append(f"
+                            deg_content.append(f"{retirer_accents(nom)};{'OUI' if p_data['repas'] else 'NON'};{'OUI' if p_data['paye'] else 'NON'}")
+                    
+                    if dg_data["invites"]:
+                        deg_content.append("")
+                        deg_content.append("INVITES")
+                        for inv in dg_data["invites"]:
+                            deg_content.append(f"{retirer_accents(inv['nom'])};{'OUI' if inv['repas'] else 'NON'};{'OUI' if inv['paye'] else 'NON'}")
+                    
+                    zip_file.writestr(f"Degustation_{retirer_accents(mois_deg)}.csv", "\n".join(deg_content))
+        
+        if has_data:
+            st.download_button(
+                label="⬇️ Télécharger ZIP",
+                data=zip_buffer.getvalue(),
+                file_name=f"Rhum_Annee_{datetime.now().strftime('%Y')}.zip",
+                mime="application/zip"
+            )
+        else:
+            st.warning("Aucune donnée à exporter.")
+
+    st.markdown("---")
+    
+    # REMISE A ZERO
+    st.subheader("⚠️ Zone Danger")
+    
+    # Bouton Report Solde
+    if st.button("📅 Reporter Solde N+1", help="Copie la trésorerie actuelle comme solde de départ pour l'année suivante"):
+        st.session_state.solde_depart = total_caisse
+        sauvegarder_etat()
+        st.success(f"✅ Solde de {total_caisse:.2f} € reporté !")
+        st.rerun()
+    
+    if st.button("🧨 Nouvelle Année (Reset Total)"):
+        st.session_state.mois_data = {} 
+        for mois in ["Février", "Mars", "Avril", "Mai", "Juin", "Juillet", 
+                     "Août", "Septembre", "Octobre", "Novembre", "Décembre"]:
+            st.session_state.mois_data[mois] = {
+                "nom_bouteille": "", "prix_achat": 0.0, "prix_sample": 0.0, "adherents": {}
+            }
+        st.session_state.adhesions = {}
+        st.session_state.degustations = {
+            "Mars": {"participants": {}, "invites": [], "prix_bouteilles": 0.0},
+            "Juin": {"participants": {}, "invites": [], "prix_bouteilles": 0.0},
+            "Septembre": {"participants": {}, "invites": [], "prix_bouteilles": 0.0},
+            "Décembre": {"participants": {}, "invites": [], "prix_bouteilles": 0.0}
+        }
+        # NE PAS réinitialiser solde_depart ici (conservé volontairement)
+        sauvegarder_etat()
+        st.rerun()
+
+# --- CORPS PRINCIPAL ---
+st.title("🥃 Gestion Association Rhum")
+
+# Création des onglets principaux
+tab_adhesions, tab_degustations, *tabs_samples = st.tabs(
+    ["💳 Adhésions", "🍽️ Dégustations"] + 
+    ["Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
+)
+
+# ============================================
+# ONGLET ADHESIONS
+# ============================================
+with tab_adhesions:
+    st.header("💳 Adhésions Annuelles (35€)")
+    
+    if not st.session_state.adherents_noms:
+        st.info("👈 Veuillez importer les adhérents dans le menu de gauche.")
+    else:
+        # Préparation données
+        data_adhesions = []
+        for nom in st.session_state.adherents_noms:
+            # Vérifier si gratuit à vie
+            nom_upper = nom.split()[0].upper()
+            gratuit = nom_upper in GRATUITS_VIE
+            
+            paye = st.session_state.adhesions.get(nom, False)
+            
+            data_adhesions.append({
+                "Nom": nom,
+                "Statut": "🎁 GRATUIT" if gratuit else "Payant",
+                "Payé": paye if not gratuit else True
+            })
+        
+        df_adh = pd.DataFrame(data_adhesions)
+        
+        edited_adh = st.data_editor(
+            df_adh,
+            column_config={
+                "Nom": st.column_config.TextColumn("Adhérent", disabled=True),
+                "Statut": st.column_config.TextColumn("Statut", disabled=True),
+                "Payé": st.column_config.CheckboxColumn("Cotisation Réglée ?")
+            },
+            hide_index=True,
+            use_container_width=True,
+            key="editor_adhesions",
+            height=500
+        )
+        
+        # Sauvegarde
+        has_changes = False
+        for index, row in edited_adh.iterrows():
+            nom = row["Nom"]
+            nom_upper = nom.split()[0].upper()
+            
+            # Ne pas modifier les gratuits
+            if nom_upper in GRATUITS_VIE:
+                continue
+            
+            old = st.session_state.adhesions.get(nom, False)
+            if old != row["Payé"]:
+                st.session_state.adhesions[nom] = bool(row["Payé"])
+                has_changes = True
+        
+        if has_changes: sauvegarder_etat()
+        
+        # Bilan
+        st.markdown("---")
+        st.markdown("### 📊 Bilan Adhésions")
+        
+        total_adherents = len(st.session_state.adherents_noms)
+        nb_gratuits = sum(1 for nom in st.session_state.adherents_noms if nom.split()[0].upper() in GRATUITS_VIE)
+        nb_payants = total_adherents - nb_gratuits
+        nb_payes = sum(1 for nom, paye in st.session_state.adhesions.items() if paye)
+        
+        ca_adhesions = nb_payes * 35
+        
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total Adhérents", total_adherents)
+        c2.metric("Payants", f"{nb_payes} / {nb_payants}")
+        c3.metric("Gratuits à Vie", nb_gratuits)
+        c4.metric("Encaissé", f"{ca_adhesions} €")
+
+# ============================================
+# ONGLET DEGUSTATIONS
+# ============================================
+with tab_degustations:
+    st.header("🍽️ Dégustations Annuelles (35€/pers)")
+    
+    if not st.session_state.adherents_noms:
+        st.info("👈 Veuillez importer les adhérents dans le menu de gauche.")
+    else:
+        tabs_deg = st.tabs(["Mars", "Juin", "Septembre", "Décembre"])
+        
+        for idx_deg, mois_deg in enumerate(["Mars", "Juin", "Septembre", "Décembre"]):
+            with tabs_deg[idx_deg]:
+                st.subheader(f"📅 Dégustation {mois_deg}")
+                
+                # COÛTS DE LA DÉGUSTATION
+                st.markdown("#### 💶 Coûts de la Dégustation")
+                col_cout1, col_cout2 = st.columns(2)
+                
+                with col_cout1:
+                    st.metric("Prix Repas Unitaire", "15 €", help="Coût fixe par personne qui mange")
+                
+                with col_cout2:
+                    prix_bouteilles = st.number_input(
+                        "Prix Total des 5 Bouteilles (€)",
+                        value=st.session_state.degustations[mois_deg].get("prix_bouteilles", 0.0),
+                        min_value=0.0,
+                        step=5.0,
+                        key=f"prix_bout_{mois_deg}"
+                    )
+                    st.session_state.degustations[mois_deg]["prix_bouteilles"] = prix_bouteilles
+                    sauvegarder_etat()
+                
+                st.markdown("---")
+                
+                # Adhérents participants
+                st.markdown("#### 👥 Adhérents")
+                data_deg = []
+                for nom in st.session_state.adherents_noms:
+                    p_data = st.session_state.degustations[mois_deg]["participants"].get(nom, {"inscrit": False, "repas": False, "paye": False})
+                    data_deg.append({
+                        "Nom": nom,
+                        "Inscrit": p_data.get("inscrit", False),
+                        "Repas": p_data.get("repas", False),
+                        "Payé": p_data.get("paye", False)
+                    })
+                
+                df_deg = pd.DataFrame(data_deg)
+                
+                edited_deg = st.data_editor(
+                    df_deg,
+                    column_config={
+                        "Nom": st.column_config.TextColumn("Adhérent", disabled=True),
+                        "Inscrit": st.column_config.CheckboxColumn("Inscrit ?"),
+                        "Repas": st.column_config.CheckboxColumn("Repas ?"),
+                        "Payé": st.column_config.CheckboxColumn("Payé ?")
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                    key=f"editor_deg_{mois_deg}",
+                    height=300
+                )
+                
+                # Sauvegarde participants
+                has_changes_deg = False
+                for index, row in edited_deg.iterrows():
+                    nom = row["Nom"]
+                    old = st.session_state.degustations[mois_deg]["participants"].get(nom, {"inscrit": False, "repas": False, "paye": False})
+                    
+                    new_data = {
+                        "inscrit": bool(row["Inscrit"]),
+                        "repas": bool(row["Repas"]),
+                        "paye": bool(row["Payé"])
+                    }
+                    
+                    if old != new_data:
+                        st.session_state.degustations[mois_deg]["participants"][nom] = new_data
+                        has_changes_deg = True
+                
+                if has_changes_deg: sauvegarder_etat()
+                
+                st.markdown("---")
+                
+                # Invités
+                st.markdown("#### 🎫 Invités Externes")
+                
+                # Ajout invité
+                col_inv1, col_inv2 = st.columns([3, 1])
+                with col_inv1:
+                    new_invite = st.text_input("Nom de l'invité", key=f"new_inv_{mois_deg}")
+                with col_inv2:
+                    if st.button("➕ Ajouter", key=f"btn_inv_{mois_deg}"):
+                        if new_invite.strip():
+                            st.session_state.degustations[mois_deg]["invites"].append({
+                                "nom": new_invite.strip(),
+                                "repas": False,
+                                "paye": False
+                            })
+                            sauvegarder_etat()
+                            st.rerun()
+                
+                # Liste invités
+                if st.session_state.degustations[mois_deg]["invites"]:
+                    data_invites = []
+                    for i, inv in enumerate(st.session_state.degustations[mois_deg]["invites"]):
+                        data_invites.append({
+                            "Index": i,
+                            "Nom": inv["nom"],
+                            "Repas": inv["repas"],
+                            "Payé": inv["paye"]
+                        })
+                    
+                    df_invites = pd.DataFrame(data_invites)
+                    
+                    edited_invites = st.data_editor(
+                        df_invites,
+                        column_config={
+                            "Index": st.column_config.NumberColumn("ID", disabled=True),
+                            "Nom": st.column_config.TextColumn("Nom Invité"),
+                            "Repas": st.column_config.CheckboxColumn("Repas ?"),
+                            "Payé": st.column_config.CheckboxColumn("Payé ?")
+                        },
+                        hide_index=True,
+                        use_container_width=True,
+                        key=f"editor_invites_{mois_deg}",
+                        height=200
+                    )
+                    
+                    # Sauvegarde invités
+                    for index, row in edited_invites.iterrows():
+                        i = int(row["Index"])
+                        st.session_state.degustations[mois_deg]["invites"][i] = {
+                            "nom": row["Nom"],
+                            "repas": bool(row["Repas"]),
+                            "paye": bool(row["Payé"])
+                        }
+                    
+                    sauvegarder_etat()
+                    
+                    # Bouton supprimer invité
+                    col_del1, col_del2 = st.columns([3, 1])
+                    with col_del1:
+                        idx_to_del = st.selectbox(
+                            "Supprimer un invité",
+                            options=range(len(st.session_state.degustations[mois_deg]["invites"])),
+                            format_func=lambda x: st.session_state.degustations[mois_deg]["invites"][x]["nom"],
+                            key=f"del_inv_{mois_deg}"
+                        )
+                    with col_del2:
+                        if st.button("🗑️ Supprimer", key=f"btn_del_{mois_deg}"):
+                            st.session_state.degustations[mois_deg]["invites"].pop(idx_to_del)
+                            sauvegarder_etat()
+                            st.rerun()
+                
+                st.markdown("---")
+                
+                # BILAN DÉTAILLÉ DE LA DÉGUSTATION
+                st.markdown("### 📊 Bilan de la Dégustation")
+                
+                # Comptage participants
+                nb_inscrits_adh = sum(1 for p in st.session_state.degustations[mois_deg]["participants"].values() if p.get("inscrit", False))
+                nb_invites = len(st.session_state.degustations[mois_deg]["invites"])
+                total_participants = nb_inscrits_adh + nb_invites
+                
+                # Comptage repas
+                nb_repas_adh = sum(1 for p in st.session_state.degustations[mois_deg]["participants"].values() if p.get("inscrit", False) and p["repas"])
+                nb_repas_inv = sum(1 for inv in st.session_state.degustations[mois_deg]["invites"] if inv["repas"])
+                total_repas = nb_repas_adh + nb_repas_inv
+                
+                # Comptage paiements
+                nb_payes_adh = sum(1 for p in st.session_state.degustations[mois_deg]["participants"].values() if p.get("inscrit", False) and p["paye"])
+                nb_payes_inv = sum(1 for inv in st.session_state.degustations[mois_deg]["invites"] if inv["paye"])
+                nb_payes_total = nb_payes_adh + nb_payes_inv
+                
+                # CALCULS FINANCIERS
+                ca_theorique = total_participants * 35
+                ca_reel = nb_payes_total * 35
+                
+                cout_repas_total = total_repas * 15
+                cout_bouteilles = st.session_state.degustations[mois_deg].get("prix_bouteilles", 0.0)
+                cout_total = cout_repas_total + cout_bouteilles
+                
+                marge_theorique = ca_theorique - cout_total
+                marge_reelle = ca_reel - cout_total
+                
+                delta_marge_deg = marge_reelle - marge_theorique
+                
+                # AFFICHAGE MÉTRIQUES
+                d1, d2, d3, d4 = st.columns(4)
+                d1.metric("Participants", f"{total_participants}", help=f"Adhérents: {nb_inscrits_adh} | Invités: {nb_invites}")
+                d2.metric("Repas", total_repas)
+                d3.metric("Payés", f"{nb_payes_total} / {total_participants}")
+                d4.metric("CA Encaissé", f"{ca_reel} €")
+                
+                st.markdown("---")
+                
+                # Détail des coûts et marges
+                col_fin1, col_fin2, col_fin3 = st.columns(3)
+                
+                with col_fin1:
+                    st.markdown("**💸 COÛTS**")
+                    st.metric("Repas", f"{cout_repas_total} €", help=f"{total_repas} repas × 15€")
+                    st.metric("Bouteilles", f"{cout_bouteilles} €", help="5 bouteilles à déguster")
+                    st.metric("TOTAL Coûts", f"{cout_total} €")
+                
+                with col_fin2:
+                    st.markdown("**💰 MARGES**")
+                    st.metric(
+                        "Marge Réelle",
+                        f"{marge_reelle:.2f} €",
+                        delta=f"{delta_marge_deg:.2f} € vs Théorique"
+                    )
+                    st.metric("Marge Potentielle", f"{marge_theorique:.2f} €")
+                
+                with col_fin3:
+                    st.markdown("**📈 RENTABILITÉ**")
+                    renta_reelle = (marge_reelle / ca_reel * 100) if ca_reel > 0 else 0
+                    st.metric("Rentabilité", f"{renta_reelle:.1f} %")
+                    
+                    if marge_reelle < 0:
+                        st.error("⚠️ DÉFICIT")
+                    elif nb_payes_total < total_participants:
+                        st.warning(f"⚠️ {total_participants - nb_payes_total} impayés")
+                    else:
+                        st.success("✅ OK")
+
+# ============================================
+# ONGLETS SAMPLES (Février à Décembre)
+# ============================================
+mois_list = ["Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
+
+for idx, mois in enumerate(mois_list):
+    with tabs_samples[idx]:
+        st.header(f"📅 {mois}")
+        
+        # INFOS BOUTEILLE
+        with st.container():
+            col1, col2, col3 = st.columns([2, 1, 1])
+            with col1:
+                nom_b = st.text_input("Nom Bouteille", 
+                                    value=st.session_state.mois_data[mois]["nom_bouteille"],
+                                    key=f"nom_{mois}")
+                st.session_state.mois_data[mois]["nom_bouteille"] = nom_b
+            
+            with col2:
+                pa = st.number_input("Prix Achat Bouteille (€)", 
+                                   value=st.session_state.mois_data[mois]["prix_achat"],
+                                   min_value=0.0, step=0.5, key=f"pa_{mois}")
+                st.session_state.mois_data[mois]["prix_achat"] = pa
+            
+            with col3:
+                ps = st.number_input("Prix Sample Unit. (€)", 
+                                   value=st.session_state.mois_data[mois]["prix_sample"],
+                                   min_value=0.0, step=0.5, key=f"ps_{mois}")
+                st.session_state.mois_data[mois]["prix_sample"] = ps
+
+        st.markdown("---")
+
+        # TABLEAU COMMANDES
+        if not st.session_state.adherents_noms:
+            st.info("👈 Veuillez importer les adhérents dans le menu de gauche.")
+        else:
+            # Préparation data
+            data_list = []
+            for nom in st.session_state.adherents_noms:
+                d = st.session_state.mois_data[mois]["adherents"].get(nom, {"qte": 0, "paye": False})
+                data_list.append({"Nom": nom, "Samples": d["qte"], "Payé": d["paye"]})
+            
+            df = pd.DataFrame(data_list)
+            
+            edited_df = st.data_editor(
+                df,
+                column_config={
+                    "Nom": st.column_config.TextColumn("Adhérent", disabled=True),
+                    "Samples": st.column_config.NumberColumn("Quantité (3cl)", min_value=0, max_value=10, step=1),
+                    "Payé": st.column_config.CheckboxColumn("Payé ?")
+                },
+                hide_index=True,
+                use_container_width=True,
+                key=f"editor_{mois}",
+                height=400
+            )
+            
+            # Sauvegarde changements
+            has_changes = False
+            for index, row in edited_df.iterrows():
+                nom = row["Nom"]
+                old = st.session_state.mois_data[mois]["adherents"].get(nom, {"qte": 0, "paye": False})
+                if old["qte"] != row["Samples"] or old["paye"] != row["Payé"]:
+                    st.session_state.mois_data[mois]["adherents"][nom] = {
+                        "qte": int(row["Samples"]),
+                        "paye": bool(row["Payé"])
+                    }
+                    has_changes = True
+            
+            if has_changes: sauvegarder_etat()
+
+            # --- CALCULS DE TRÉSORERIE ---
+            total_samples = sum(d["qte"] for d in st.session_state.mois_data[mois]["adherents"].values())
+            total_payes = sum(d["qte"] for d in st.session_state.mois_data[mois]["adherents"].values() if d["paye"])
+            
+            # CA
+            ca_theorique = total_samples * ps
+            ca_reel = total_payes * ps
+            
+            # Marges
+            marge_theorique = ca_theorique - pa
+            marge_reelle = ca_reel - pa
+            
+            delta_marge = marge_reelle - marge_theorique
+            
+            st.markdown("### 📊 Trésorerie & Rentabilité")
+            col1, col2, col3, col4 = st.columns(4)
+            
+            col1.metric(
+                label="📦 Samples Payés",
+                value=f"{total_payes} / {total_samples}",
+                delta=f"{total_samples - total_payes} en attente",
+                delta_color="inverse"
+            )
+            
+            col2.metric(
+                label="💰 Caisse Réelle (Net)",
+                value=f"{marge_reelle:.2f} €",
+                delta=f"{delta_marge:.2f} € vs Potentiel",
+                help="Bénéfice net actuel (CA perçu - Prix Bouteille)"
+            )
+            
+            col3.metric(
+                label="🏆 Bénéfice Potentiel",
+                value=f"{marge_theorique:.2f} €"
+            )
+            
+            pct_rembourse = (ca_reel / pa * 100) if pa > 0 else 0
+            
+            col4.metric(
+                label="📉 Bouteille Remboursée",
+                value=f"{pct_rembourse:.0f} %",
+                delta="Déficitaire" if marge_reelle < 0 else "Rentable",
+                delta_color="normal"
+            )
+
+            if marge_reelle < 0:
+                st.error(f"⚠️ DÉFICIT : Il manque encore {-marge_reelle:.2f} € pour rembourser la bouteille !")
+            elif marge_reelle >= 0 and total_payes < total_samples:
+                st.warning(f"⚠️ Bouteille remboursée, mais {total_samples - total_payes} samples ne sont pas encore payés.")
+            elif marge_reelle > 0 and total_payes == total_samples and total_samples > 0:
+                st.success("✅ PARFAIT : Bouteille rentabilisée et tous les comptes sont à jour !")
+            
+            st.markdown("---")
+
+            # EXPORT MOIS
+            if st.button(f"📥 Exporter {mois} (CSV)", key=f"btn_{mois}"):
+                lignes = []
+                for nom, d in st.session_state.mois_data[mois]["adherents"].items():
+                    if d["qte"] > 0:
+                        lignes.append(f"{retirer_accents(nom)};{d['qte']};{'OUI' if d['paye'] else 'NON'}")
+                
+                if lignes:
+                    csv_txt = f"Mois;{retirer_accents(mois)}\nBouteille;{retirer_accents(nom_b)}\n"
+                    csv_txt += f"Marge;{marge_theorique:.2f};MargeReelle;{marge_reelle:.2f}\n\nNom;Samples;Paye\n"
+                    csv_txt += "\n".join(lignes)
+                    
+                    st.download_button(
+                        label="⬇️ Télécharger CSV",
+                        data=csv_txt,
+                        file_name=f"Rhum_{retirer_accents(mois)}.csv",
+                        mime="text/csv"
+                    )

@@ -18,53 +18,105 @@ st.set_page_config(
 
 FICHIER_ETAT = "rhum_etat.json"
 
-# --- THEME CSS RHUM ---
+Il semble que le code que tu m'as envoyé contient encore l'ancien CSS (texte doré sur fond blanc, ce qui est illisible).
+
+Je vais t'envoyer le code app.py COMPLET mais avec un nouveau bloc CSS ultra-lisible qui correspond exactement au thème config.toml "bois clair/chocolat" que je t'ai donné juste avant.
+
+Ce qui est corrigé dans ce code :
+Suppression du CSS "Gold" illisible.
+
+Remplacement par un CSS "Chocolat/Bois clair" contrasté et élégant.
+
+Correction d'une erreur dans l'export ZIP (\\n au lieu de \n).
+
+📁 Fichier app.py (Version Finale Lisible)
+Copie ce bloc entier pour remplacer ton app.py.
+
+python
+import streamlit as st
+import pandas as pd
+import csv
+import json
+import unicodedata
+import zipfile
+import io
+from datetime import datetime
+import os
+
+# --- CONFIGURATION PAGE ---
+st.set_page_config(
+    page_title="Gestion Samples Rhum",
+    page_icon="🥃",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+FICHIER_ETAT = "rhum_etat.json"
+
+# --- THEME CSS LISIBLE (Chocolat & Bois Clair) ---
 st.markdown("""
 <style>
-    /* Palette Rhum : Bois, Marron, Or */
+    /* Fond principal : Beige très clair */
     .stApp {
-        background-color: #F5F5DC;
+        background-color: #FAFAF5;
     }
     
-    /* Sidebar Bois */
+    /* Sidebar : Beige un peu plus soutenu (Sable) */
     section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #654321 0%, #8B4513 100%);
-        color: #FFD700;
+        background-color: #F0E6D2;
+        border-right: 1px solid #D7CCC8;
     }
     
-    /* Titres */
+    /* Titres : Marron Chocolat Foncé (Très lisible) */
     h1, h2, h3 {
-        color: #8B4513;
-        font-family: 'Georgia', serif;
+        color: #3E2723 !important;
+        font-family: 'Helvetica', 'Arial', sans-serif;
+        font-weight: 700;
     }
     
-    /* Boutons Rhum */
+    /* Texte normal : Noir doux */
+    p, label, .stMarkdown {
+        color: #2D241E !important;
+    }
+    
+    /* Boutons : Marron Cuir */
     .stButton > button {
-        background: linear-gradient(145deg, #A0522D, #8B4513);
-        color: white;
-        border: 2px solid #DAA520;
-        border-radius: 10px;
-        font-weight: bold;
+        background-color: #8D6E63;
+        color: white !important;
+        border: 1px solid #5D4037;
+        border-radius: 6px;
+        transition: all 0.2s;
     }
     .stButton > button:hover {
-        background: #CD853F;
-        border-color: #FFD700;
-        color: white;
-    }
-
-    /* Métriques Dorées */
-    [data-testid="stMetricValue"] {
-        color: #B8860B;
+        background-color: #6D4C41;
+        border-color: #3E2723;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
     }
     
-    /* Success Box */
-    .stSuccess {
-        background-color: #DEB887;
-        color: #4A2C0B;
-        border: 1px solid #8B4513;
+    /* Métriques (Chiffres) : Couleur Cognac */
+    [data-testid="stMetricValue"] {
+        color: #A1887F !important;
+        font-weight: bold;
+    }
+    [data-testid="stMetricLabel"] {
+        color: #5D4037 !important;
+    }
+    
+    /* Boîtes de succès/info */
+    .stSuccess, .stInfo {
+        background-color: #EFEBE9;
+        border-left: 5px solid #8D6E63;
+        color: #3E2723;
+    }
+    
+    /* Tableau (Data Editor) */
+    [data-testid="stDataFrame"] {
+        border: 1px solid #D7CCC8;
+        border-radius: 5px;
     }
 </style>
 """, unsafe_allow_html=True)
+
 
 # --- FONCTIONS UTILITAIRES ---
 def retirer_accents(texte):

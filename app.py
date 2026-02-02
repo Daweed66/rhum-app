@@ -1,37 +1,3 @@
-import streamlit as st
-import pandas as pd
-import csv
-import json
-import unicodedata
-import zipfile
-import io
-from datetime import datetime
-import os
-
-# --- CONFIGURATION PAGE ---
-st.set_page_config(
-    page_title="Gestion Samples Rhum",
-    page_icon="🥃",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-FICHIER_ETAT = "rhum_etat.json"
-
-Il semble que le code que tu m'as envoyé contient encore l'ancien CSS (texte doré sur fond blanc, ce qui est illisible).
-
-Je vais t'envoyer le code app.py COMPLET mais avec un nouveau bloc CSS ultra-lisible qui correspond exactement au thème config.toml "bois clair/chocolat" que je t'ai donné juste avant.
-
-Ce qui est corrigé dans ce code :
-Suppression du CSS "Gold" illisible.
-
-Remplacement par un CSS "Chocolat/Bois clair" contrasté et élégant.
-
-Correction d'une erreur dans l'export ZIP (\\n au lieu de \n).
-
-📁 Fichier app.py (Version Finale Lisible)
-Copie ce bloc entier pour remplacer ton app.py.
-
 python
 import streamlit as st
 import pandas as pd

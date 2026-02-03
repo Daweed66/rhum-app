@@ -17,6 +17,7 @@ st.set_page_config(
 )
 
 FICHIER_ETAT = "rhum_etat.json"
+CAPACITE_BOUTEILLE = 20  # Nombre de samples estimés par bouteille
 
 # --- THEME CSS LISIBLE (Chocolat & Bois Clair) ---
 st.markdown("""
@@ -333,8 +334,8 @@ with st.sidebar:
 st.title("🥃 Gestion Association Rhum")
 
 # --- NOUVELLE STRUCTURE D'ONGLETS ---
-tab_adhesions, tab_degustations, tab_samples_main = st.tabs(
-    ["💳 Adhésions", "🍽️ Dégustations", "🥃 Samples"]
+tab_adhesions, tab_degustations, tab_samples_main, tab_stocks = st.tabs(
+    ["💳 Adhésions", "🍽️ Dégustations", "🥃 Samples", "📦 Stock Restant"]
 )
 
 # ============================================
@@ -548,7 +549,6 @@ with tab_samples_main:
     st.header("🥃 Samples Mensuels")
     
     mois_list = ["Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
-    # CRÉATION DES SOUS-ONGLETS
     tabs_samples = st.tabs(mois_list)
 
     for idx, mois in enumerate(mois_list):
@@ -562,7 +562,6 @@ with tab_samples_main:
                     nom_b = st.text_input("Nom Bouteille", 
                                         value=st.session_state.mois_data[mois]["nom_bouteille"],
                                         key=f"nom_{mois}")
-                    # CORRECTION : Sauvegarde immédiate si changement
                     if nom_b != st.session_state.mois_data[mois]["nom_bouteille"]:
                         st.session_state.mois_data[mois]["nom_bouteille"] = nom_b
                         sauvegarder_etat()
@@ -650,3 +649,70 @@ with tab_samples_main:
                     if lignes:
                         csv_txt = f"Mois;{retirer_accents(mois)}\nBouteille;{retirer_accents(nom_b)}\nMarge;{marge_theorique:.2f};MargeReelle;{marge_reelle:.2f}\n\nNom;Samples;Paye\n" + "\n".join(lignes)
                         st.download_button(label="⬇️ Télécharger CSV", data=csv_txt, file_name=f"Rhum_{retirer_accents(mois)}.csv", mime="text/csv")
+
+# ============================================
+# ONGLET STOCK RESTANT
+# ============================================
+with tab_stocks:
+    st.header("📦 Samples Invendus & Stock")
+    st.info(f"ℹ️ Basé sur une capacité théorique de {CAPACITE_BOUTEILLE} samples par bouteille.")
+
+    mois_list = ["Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
+    
+    rows_stock = []
+    total_restant = 0
+    valeur_stock_totale = 0.0
+
+    for mois in mois_list:
+        data = st.session_state.mois_data[mois]
+        nom_b = data["nom_bouteille"]
+        
+        if nom_b: # Si une bouteille est nommée, elle existe
+            vendus = sum(d["qte"] for d in data["adherents"].values())
+            
+            # Si on a vendu plus que 20, la capacité s'adapte (c'est magique)
+            capacite_reelle = max(CAPACITE_BOUTEILLE, vendus)
+            restant = capacite_reelle - vendus
+            
+            # Valeur latente = Stock * Prix Sample
+            valeur_latente = restant * data["prix_sample"]
+            
+            if restant > 0:
+                rows_stock.append({
+                    "Mois": mois,
+                    "Bouteille": nom_b,
+                    "Vendus": f"{vendus} / {capacite_reelle}",
+                    "Restants": restant,
+                    "Prix Unit.": f"{data['prix_sample']} €",
+                    "Valeur Latente": valeur_latente
+                })
+                total_restant += restant
+                valeur_stock_totale += valeur_latente
+
+    if rows_stock:
+        # Métriques du stock
+        c1, c2 = st.columns(2)
+        c1.metric("Total Samples Disponibles", total_restant)
+        c2.metric("Valeur Latente (Stock)", f"{valeur_stock_totale:.2f} €", help="Argent potentiel si tout est vendu")
+        
+        df_stock = pd.DataFrame(rows_stock)
+        
+        st.dataframe(
+            df_stock,
+            column_config={
+                "Mois": st.column_config.TextColumn("Mois", disabled=True),
+                "Bouteille": st.column_config.TextColumn("Bouteille", disabled=True),
+                "Vendus": st.column_config.TextColumn("Ventes", disabled=True),
+                "Restants": st.column_config.ProgressColumn(
+                    "Stock Restant", 
+                    min_value=0, 
+                    max_value=CAPACITE_BOUTEILLE, 
+                    format="%d",
+                ),
+                "Valeur Latente": st.column_config.NumberColumn("Valeur Latente", format="%.2f €")
+            },
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.success("✅ Aucun stock dormant ! Toutes les bouteilles enregistrées sont terminées (ou aucune bouteille n'est encore saisie).")

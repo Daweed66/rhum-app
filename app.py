@@ -395,31 +395,93 @@ with tab4:
 
 # 5. RHUMOTHÈQUE
 with tab5:
-    st.header("🏛️ Rhumothèque (Archives)")
-    st.info(f"ℹ️ {RHUMOTHEQUE_PRELEVEMENT} samples (6cl) réservés automatiquement par bouteille.")
+    st.header("🏛️ Rhumothèque (Archives & Cave)")
     
+    # --- FORMULAIRE D'AJOUT MANUEL ---
+    with st.expander("➕ Ajouter une bouteille manuellement", expanded=False):
+        c1, c2, c3 = st.columns([2, 1, 1])
+        new_nom = c1.text_input("Nom de la bouteille")
+        new_mois = c2.selectbox("Mois / Référence", ["Autre"] + list(st.session_state.mois_data.keys()))
+        new_val = c3.number_input("Valeur estimée (€)", min_value=0.0, step=0.5)
+        
+        if st.button("Ajouter à la Rhumothèque"):
+            if new_nom:
+                # Création d'un ID unique basé sur le temps pour éviter les doublons
+                new_id = f"manual_{int(datetime.now().timestamp())}"
+                st.session_state.rhumotheque[new_id] = {
+                    "nom": new_nom,
+                    "mois_ref": new_mois, # Pour savoir d'où ça vient
+                    "en_stock": True,
+                    "valeur": new_val,
+                    "notes": ""
+                }
+                sauvegarder_etat()
+                st.success(f"✅ {new_nom} ajouté !")
+                st.rerun()
+            else:
+                st.error("Le nom est obligatoire.")
+
+    st.markdown("---")
+
+    # --- LISTE DES BOUTEILLES ---
     rhumo_list = []
     tot_val_rhumo = 0
     
+    # On récupère toutes les entrées (auto + manuelles)
+    keys_to_delete = []
+    
+    # Affichage en grille (3 par ligne)
     cols = st.columns(3)
-    for i, (mois, data) in enumerate(st.session_state.rhumotheque.items()):
+    
+    for i, (id_rhum, data) in enumerate(st.session_state.rhumotheque.items()):
+        # Nettoyage des entrées vides éventuelles
         if not data.get("nom"): continue
+        
         with cols[i % 3]:
             with st.container(border=True):
-                st.markdown(f"**{mois}** : {data['nom']}")
-                st.caption(f"Valeur : {data['valeur']:.2f} €")
-                en_stock = st.checkbox("En Stock", value=data["en_stock"], key=f"rh_st_{mois}")
-                notes = st.text_area("Notes", value=data.get("notes", ""), height=60, key=f"rh_nt_{mois}")
-                if en_stock != data["en_stock"] or notes != data.get("notes", ""):
-                    data["en_stock"] = en_stock
-                    data["notes"] = notes
+                # En-tête éditable
+                col_titre, col_del = st.columns([4, 1])
+                new_nom_edit = col_titre.text_input("Nom", value=data['nom'], key=f"rn_{id_rhum}")
+                
+                if col_del.button("🗑️", key=f"rd_{id_rhum}", help="Supprimer"):
+                    keys_to_delete.append(id_rhum)
+                
+                # Détails
+                c_val, c_stock = st.columns(2)
+                new_val_edit = c_val.number_input("Valeur (€)", value=float(data.get('valeur', 0.0)), step=0.5, key=f"rv_{id_rhum}")
+                new_stock = c_stock.checkbox("En Stock", value=data.get("en_stock", True), key=f"rs_{id_rhum}")
+                
+                # Notes
+                new_notes = st.text_area("Notes", value=data.get("notes", ""), height=60, key=f"rnt_{id_rhum}")
+                
+                # Sauvegarde si changement détecté
+                if (new_nom_edit != data['nom'] or 
+                    new_val_edit != data.get('valeur') or 
+                    new_stock != data.get("en_stock") or 
+                    new_notes != data.get("notes", "")):
+                    
+                    st.session_state.rhumotheque[id_rhum]["nom"] = new_nom_edit
+                    st.session_state.rhumotheque[id_rhum]["valeur"] = new_val_edit
+                    st.session_state.rhumotheque[id_rhum]["en_stock"] = new_stock
+                    st.session_state.rhumotheque[id_rhum]["notes"] = new_notes
                     sauvegarder_etat()
                     st.rerun()
-                if data["en_stock"]:
+                
+                # Calcul total
+                if data.get("en_stock", True):
                     rhumo_list.append(data)
-                    tot_val_rhumo += data["valeur"]
+                    tot_val_rhumo += data.get("valeur", 0.0)
+
+    # Suppression effective après la boucle pour ne pas casser l'itération
+    if keys_to_delete:
+        for k in keys_to_delete:
+            del st.session_state.rhumotheque[k]
+        sauvegarder_etat()
+        st.rerun()
 
     st.markdown("---")
+    # --- BILAN ---
     c1, c2 = st.columns(2)
-    c1.metric("Bouteilles en Archive", len(rhumo_list))
-    c2.metric("Valeur Totale", f"{tot_val_rhumo:.2f} €")
+    c1.metric("Bouteilles en Stock", len(rhumo_list))
+    c2.metric("Valeur Totale Rhumothèque", f"{tot_val_rhumo:.2f} €")
+
